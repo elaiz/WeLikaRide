@@ -6,7 +6,8 @@ create table if not exists public.profiles (
   id uuid references auth.users(id) on delete cascade primary key,
   name text not null,
   phone text,
-  role text not null check (role in ('rider', 'driver')),
+  role text not null check (role in ('rider', 'driver', 'admin')),
+  approved boolean not null default false,  -- drivers must be approved; riders/admins are always considered active
   total_miles numeric default 0,
   created_at timestamptz default now()
 );
@@ -14,6 +15,32 @@ alter table public.profiles enable row level security;
 create policy "Users can read own profile" on public.profiles for select using (auth.uid() = id);
 create policy "Users can update own profile" on public.profiles for update using (auth.uid() = id);
 create policy "Users can insert own profile" on public.profiles for insert with check (auth.uid() = id);
+-- Admins can read all profiles
+create policy "Admins can read all profiles" on public.profiles for select
+  using ((select role from public.profiles where id = auth.uid()) = 'admin');
+-- Admins can update any profile (to approve/deactivate drivers)
+create policy "Admins can update profiles" on public.profiles for update
+  using ((select role from public.profiles where id = auth.uid()) = 'admin');
+
+-- Driver invite tokens (single-use, created by admins)
+create table if not exists public.driver_invites (
+  id uuid default gen_random_uuid() primary key,
+  token text not null unique,
+  created_by uuid references public.profiles(id) not null,
+  used_by uuid references public.profiles(id),
+  used_at timestamptz,
+  expires_at timestamptz not null default (now() + interval '7 days'),
+  created_at timestamptz default now()
+);
+alter table public.driver_invites enable row level security;
+-- Anyone (even unauthenticated) can look up an invite token by value during registration
+create policy "Public can read invite by token" on public.driver_invites for select using (true);
+-- Only admins can insert invites
+create policy "Admins can create invites" on public.driver_invites for insert
+  with check ((select role from public.profiles where id = auth.uid()) = 'admin');
+-- Admins can view all invites
+create policy "Admins can view all invites" on public.driver_invites for select
+  using ((select role from public.profiles where id = auth.uid()) = 'admin');
 
 -- Ride Requests
 -- NOTE: destination is intentionally NOT stored per privacy design
