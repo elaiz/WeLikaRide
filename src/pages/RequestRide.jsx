@@ -40,6 +40,7 @@ export default function RequestRide({ profile }) {
     const payload = {
       rider_id: profile.id,
       rider_name: profile.name,
+      special_requests: profile.special_requests || null,
       pickup_address: useGPS ? null : address.trim(),
       pickup_lat: coords?.lat ?? null,
       pickup_lng: coords?.lng ?? null,

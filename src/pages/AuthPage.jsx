@@ -7,6 +7,7 @@ export default function AuthPage() {
   const [password, setPassword] = useState('')
   const [name, setName] = useState('')
   const [phone, setPhone] = useState('')
+  const [specialRequests, setSpecialRequests] = useState('')
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
   const [loading, setLoading] = useState(false)
@@ -16,20 +17,14 @@ export default function AuthPage() {
   const inviteToken = params.get('invite') || ''
   const isDriverInvite = inviteToken.length > 0
 
-  // Validate token exists and isn't expired before showing the driver form
+  // Validate token exists and isn't expired via RPC (avoids exposing all tokens)
   const [tokenValid, setTokenValid] = useState(null) // null=checking, true, false
 
   useEffect(() => {
     if (!isDriverInvite) { setTokenValid(true); return }
     async function checkToken() {
-      const { data } = await supabase
-        .from('driver_invites')
-        .select('id, expires_at, used_by')
-        .eq('token', inviteToken)
-        .single()
-      setTokenValid(
-        !!data && !data.used_by && new Date(data.expires_at) > new Date()
-      )
+      const { data } = await supabase.rpc('check_driver_invite', { p_token: inviteToken })
+      setTokenValid(!!data)
     }
     checkToken()
   }, [inviteToken, isDriverInvite])
@@ -47,33 +42,41 @@ export default function AuthPage() {
       // All self-registrations are riders unless a valid invite token is present
       const role = isDriverInvite && tokenValid ? 'driver' : 'rider'
 
+      // Use an atomic RPC that creates the profile and consumes the invite in one
+      // transaction, avoiding the race condition of signing up then upserting separately.
       const { data, error } = await supabase.auth.signUp({ email, password })
       if (error) {
         setError(error.message)
-      } else if (data.user) {
-        // Create profile — drivers start unapproved until invite RPC approves them
-        await supabase.from('profiles').upsert({
-          id: data.user.id,
-          name,
-          phone,
-          role,
-          approved: role !== 'driver', // riders/admins approved by default; drivers need invite consumed
-        })
-
-        if (role === 'driver') {
-          const ok = await supabase.rpc('consume_driver_invite', {
-            p_token: inviteToken,
-            p_user_id: data.user.id,
-          })
-          if (!ok.data) {
-            setError('Invite token is invalid or has already been used. Please contact an admin.')
-            setLoading(false)
-            return
-          }
-        }
-
-        setMessage('Account created! Check your email to confirm, then sign in.')
+        setLoading(false)
+        return
       }
+
+      if (!data.user) {
+        // Email confirmation required — profile will be created after confirmation
+        // via a post-confirm trigger or on first sign-in. Show a helpful message.
+        setMessage('Check your email to confirm your account, then sign in.')
+        setLoading(false)
+        return
+      }
+
+      // Session is active (email confirmation disabled) — create profile now
+      const profilePayload = {
+        p_user_id: data.user.id,
+        p_name: name,
+        p_phone: phone || null,
+        p_role: role,
+        p_special_requests: role === 'rider' ? (specialRequests.trim() || null) : null,
+        p_invite_token: role === 'driver' ? inviteToken : null,
+      }
+
+      const { data: ok, error: rpcErr } = await supabase.rpc('register_user', profilePayload)
+      if (rpcErr || !ok) {
+        setError(rpcErr?.message || 'Registration failed. The invite token may be invalid or expired.')
+        setLoading(false)
+        return
+      }
+
+      setMessage('Account created! You are now signed in.')
     }
     setLoading(false)
   }
@@ -139,7 +142,20 @@ export default function AuthPage() {
                 value={phone}
                 onChange={e => setPhone(e.target.value)}
               />
-              {/* Role is determined by the invite token — no manual selection */}
+              {/* Special accommodations — riders only */}
+              {!isDriverInvite && (
+                <div className="flex flex-col gap-1">
+                  <textarea
+                    className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                    placeholder="Special accommodations (optional) — e.g. wheelchair accessible vehicle needed, assistance getting in/out, service animal, hearing impaired…"
+                    rows={3}
+                    value={specialRequests}
+                    onChange={e => setSpecialRequests(e.target.value)}
+                  />
+                  <p className="text-xs text-gray-400">Saved to your profile and shown to every driver who accepts your ride.</p>
+                </div>
+              )}
+              {/* Role indicator — not selectable, determined by invite */}
               <div className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm ${isDriverInvite ? 'bg-green-50 border border-green-200 text-green-700' : 'bg-gray-50 border border-gray-200 text-gray-500'}`}>
                 {isDriverInvite ? '🚗 Registering as a Volunteer Driver' : '🙋 Registering as a Rider'}
               </div>

@@ -28,11 +28,19 @@ export default function DriverDashboard({ profile }) {
   }
 
   async function acceptRide(rideId) {
-    await supabase.from('ride_requests').update({
-      status: 'accepted',
-      driver_id: profile.id,
-      driver_name: profile.name,
-    }).eq('id', rideId)
+    const { count, error } = await supabase
+      .from('ride_requests')
+      .update({
+        status: 'accepted',
+        driver_id: profile.id,
+        driver_name: profile.name,
+      })
+      .eq('id', rideId)
+      .eq('status', 'pending') // guard: only accept if still pending
+      .select('id', { count: 'exact', head: true })
+    if (error || count === 0) {
+      alert('This ride was just accepted by another driver. Please choose another.')
+    }
   }
 
   async function completeRide(ride) {
@@ -68,6 +76,12 @@ export default function DriverDashboard({ profile }) {
               <div key={ride.id} className="bg-blue-50 border border-blue-200 rounded-xl p-4 flex flex-col gap-3">
                 <div>
                   <p className="font-medium text-gray-800">{ride.rider_name}</p>
+                  {ride.special_requests && (
+                    <div className="mt-1 flex items-start gap-1.5 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5">
+                      <span className="text-base leading-none mt-0.5">♿</span>
+                      <p className="text-xs text-amber-800 font-medium">{ride.special_requests}</p>
+                    </div>
+                  )}
                   <p className="text-sm text-gray-600 mt-1">
                     📍 {ride.pickup_address || (ride.pickup_lat ? `${parseFloat(ride.pickup_lat).toFixed(4)}, ${parseFloat(ride.pickup_lng).toFixed(4)}` : 'Location set')}
                   </p>
@@ -121,6 +135,12 @@ export default function DriverDashboard({ profile }) {
               <div key={ride.id} className="bg-white border border-gray-200 rounded-xl p-4 flex flex-col gap-3">
                 <div>
                   <p className="font-medium text-gray-800">{ride.rider_name}</p>
+                  {ride.special_requests && (
+                    <div className="mt-1 flex items-start gap-1.5 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5">
+                      <span className="text-base leading-none mt-0.5">♿</span>
+                      <p className="text-xs text-amber-800 font-medium">{ride.special_requests}</p>
+                    </div>
+                  )}
                   <p className="text-sm text-gray-600 mt-1">
                     📍 {ride.pickup_address || (ride.pickup_lat ? `${parseFloat(ride.pickup_lat).toFixed(4)}, ${parseFloat(ride.pickup_lng).toFixed(4)}` : 'Location set')}
                   </p>

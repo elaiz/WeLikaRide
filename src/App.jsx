@@ -56,7 +56,7 @@ export default function App() {
                 ? <Navigate to="/driver" replace />
                 : <Navigate to="/rider" replace />
             } />
-            <Route path="/rider" element={<RiderDashboard profile={profile} />} />
+            <Route path="/rider" element={<RiderDashboard profile={profile} onProfileUpdate={() => loadProfile(session.user.id)} />} />
             <Route path="/rider/request" element={<RequestRide profile={profile} />} />
             <Route path="/driver" element={<DriverDashboard profile={profile} />} />
             <Route path="/history" element={<RideHistory profile={profile} />} />
